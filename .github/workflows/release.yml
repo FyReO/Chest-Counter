@@ -1,0 +1,64 @@
+name: Build and release
+
+# Push a version tag (for example v1.0.1) and this builds ChestCounter.exe on a
+# Windows machine at GitHub and publishes it as a Release. Running copies of the
+# app find that Release and update themselves.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Put the tag's version number into the app
+        shell: python
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          import os, pathlib, re
+          version = os.environ["TAG"].lstrip("vV")
+          path = pathlib.Path("chest_counter.py")
+          text = path.read_text(encoding="utf-8")
+          text, n = re.subn(r'__version__ = "[^"]*"', f'__version__ = "{version}"', text, count=1)
+          assert n == 1, "could not find __version__ in chest_counter.py"
+          path.write_text(text, encoding="utf-8")
+          print("Building version", version)
+
+      - name: Install build tools
+        run: pip install opencv-python-headless numpy mss pyinstaller
+
+      - name: Smoke test (imports and version)
+        run: python -c "import chest_counter, updater; print('version', chest_counter.__version__)"
+
+      - name: Build the exe
+        run: >
+          pyinstaller --onefile --noconsole --clean
+          --name ChestCounter
+          --hidden-import mss.windows
+          chest_counter.py
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/ChestCounter.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content -NoNewline -Path dist/ChestCounter.exe.sha256 -Value $hash
+          Write-Host "SHA256: $hash"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ChestCounter.exe
+            dist/ChestCounter.exe.sha256
+          generate_release_notes: true

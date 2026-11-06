@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+# your own data, never commit these
+chest_count.json
+chest_count.json.tmp
+diagnose/
+ChestCounter-update-*
+*.old
