@@ -15,7 +15,8 @@ Options:    --monitor N    only watch monitor N (default: watch ALL monitors)
             --diagnose     20-second self-test that saves screenshots + scores
             --video FILE   test on a recorded clip instead of the screen
 
-Right-click the window for options (add/remove a chest, updates, reset, always on top).
+Click "Settings" in the window (or right-click it) to choose which stats show and to turn
+on the in-game overlay. Right-click also has add/remove a chest, updates and reset.
 The packaged ChestCounter.exe updates itself from GitHub Releases (see README.md).
 
 Tip: set Fortnite to "Windowed Fullscreen". True exclusive fullscreen can show
@@ -34,15 +35,18 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import overlay as overlay_mod
+import settings as appcfg
+import settings_window
 import updater
 
 # --------------------------------------------------------------------------
 # Version + update source
 # --------------------------------------------------------------------------
 __version__ = "1.0.0"                        # the release workflow stamps this from your git tag
-GITHUB_REPO = "FyReO/Chest-Counter"  # <- change to your public GitHub repo
+GITHUB_REPO = "FyReO/Chest-Counter"          # your public GitHub repo
 FROZEN = getattr(sys, "frozen", False)       # True when running as the packaged .exe
-UPDATES_ENABLED = "YOUR-USERNAME" not in GITHUB_REPO
+UPDATES_ENABLED = "YOUR-USERNAME" not in GITHUB_REPO   # stays off only if the placeholder is left in
 UPDATE_CHECK_EVERY = 6 * 3600                # seconds between checks while the app stays open
 
 # --------------------------------------------------------------------------
@@ -298,12 +302,13 @@ class SessionStats:
 
 
 class Store:
-    """Saves your all-time total and best session so they survive restarts."""
+    """Saves your all-time total, best session and settings so they survive restarts."""
 
     def __init__(self):
         self.path = self._pick_path()
         self.total = 0
         self.best_session = 0
+        self.settings = appcfg.clean_settings(None)
         self.load()
 
     @staticmethod
@@ -323,13 +328,15 @@ class Store:
             data = json.loads(self.path.read_text())
             self.total = max(0, int(data.get("total", data.get("count", 0))))   # old files used "count"
             self.best_session = max(0, int(data.get("best_session", 0)))
+            self.settings = appcfg.clean_settings(data.get("settings"))
         except Exception:
             pass
 
     def save(self):
         try:
             tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(json.dumps({"total": self.total, "best_session": self.best_session}))
+            tmp.write_text(json.dumps({"total": self.total, "best_session": self.best_session,
+                                       "settings": self.settings}))
             os.replace(tmp, self.path)       # atomic: a crash can't corrupt the save
             return True
         except Exception:
@@ -387,6 +394,11 @@ def style_titlebar(root):
         pass
 
 
+STAT_CARDS = [("session", "THIS SESSION"), ("time", "SESSION TIME"),
+              ("pm", "CHESTS / MINUTE"), ("ph", "CHESTS / HOUR"),
+              ("gap", "AVG TIME BETWEEN"), ("last", "LAST CHEST")]
+
+
 def run_app(monitor_index, debug):
     import tkinter as tk
     from tkinter import messagebox
@@ -398,63 +410,113 @@ def run_app(monitor_index, debug):
     root.title("Chest Counter")
     root.configure(bg=BG)
     root.resizable(False, False)
-    root.attributes("-topmost", True)
 
-    sf = max(1.0, root.winfo_fpixels("1i") / 96.0)       # display scaling (125%, 150%...)
+    store = Store()
+    cfg = store.settings                                   # live settings (saved with the total)
+    root.attributes("-topmost", cfg["always_on_top"])
+
+    sf = max(1.0, root.winfo_fpixels("1i") / 96.0)         # display scaling (125%, 150%...)
     S = lambda v: int(round(v * sf))
     F = lambda size, weight="normal": (FONT, -int(round(size * 4 / 3 * sf)), weight)   # size in points
-    W, H, PAD = 340, 452, 16
-    root.geometry(f"{S(W)}x{S(H)}")
-    style_titlebar(root)
+    W, PAD = 340, 16
 
-    cv = tk.Canvas(root, width=S(W), height=S(H), bg=BG, highlightthickness=0, bd=0)
+    cv = tk.Canvas(root, width=S(W), height=S(200), bg=BG, highlightthickness=0, bd=0)
     cv.pack()
 
-    def rrect(x1, y1, x2, y2, r, fill, outline=""):
+    def rrect(x1, y1, x2, y2, r, fill, outline="", tags=()):
         x1, y1, x2, y2, r = S(x1), S(y1), S(x2), S(y2), S(r)
         pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
                x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
-        return cv.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=1)
+        return cv.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=1, tags=tags)
 
-    def text(x, y, s, size, color, weight="normal", anchor="center"):
-        return cv.create_text(S(x), S(y), text=s, fill=color, font=F(size, weight), anchor=anchor)
+    def text(x, y, s, size, color, weight="normal", anchor="center", tags=()):
+        return cv.create_text(S(x), S(y), text=s, fill=color, font=F(size, weight), anchor=anchor, tags=tags)
 
-    # ---- header
+    # ---- header (fixed)
     text(PAD, 22, "CHEST COUNTER", 10, TEXT, "bold", "w")
-    text(W - PAD, 22, "right-click for options", 8, MUTED, "normal", "e")
+    link = text(W - PAD, 22, "Settings", 9, MUTED, "bold", "e")
+    cv.tag_bind(link, "<Button-1>", lambda e: open_settings())
+    cv.tag_bind(link, "<Enter>", lambda e: (cv.itemconfig(link, fill=GOLD), cv.config(cursor="hand2")))
+    cv.tag_bind(link, "<Leave>", lambda e: (cv.itemconfig(link, fill=MUTED), cv.config(cursor="")))
 
-    # ---- hero card: all-time total
+    # ---- hero card: all-time total (fixed)
     hero = rrect(PAD, 40, W - PAD, 170, 16, CARD, BORDER)
     text(W / 2, 62, "TOTAL CHESTS OPENED", 8, MUTED, "bold")
     total_id = text(W / 2, 106, "0", 46, GOLD, "bold")
     best_id = text(W / 2, 152, "", 8, MUTED, "bold")
 
-    # ---- stat cards (2 x 3)
-    cards = [("session", "THIS SESSION"), ("time", "SESSION TIME"),
-             ("pm", "CHESTS / MINUTE"), ("ph", "CHESTS / HOUR"),
-             ("gap", "AVG TIME BETWEEN"), ("last", "LAST CHEST")]
-    cw, ch, gap = (W - 2 * PAD - 10) / 2, 72, 10
-    value_ids = {}
-    for i, (key, label) in enumerate(cards):
-        col, row = i % 2, i // 2
-        x, y = PAD + col * (cw + gap), 184 + row * (ch + gap)
-        rrect(x, y, x + cw, y + ch, 14, CARD, BORDER)
-        text(x + 14, y + 18, label, 8, MUTED, "bold", "w")
-        value_ids[key] = text(x + 14, y + 46, "--", 15, TEXT, "bold", "w")
-
-    # ---- status row
-    dot = cv.create_oval(S(PAD), S(431), S(PAD + 8), S(439), fill=GREEN, outline="")
-    status_id = text(PAD + 16, 435, "Starting...", 9, MUTED, "normal", "w")
-    text(W - PAD, 435, f"v{__version__}", 8, MUTED, "normal", "e")
-
-    # ---- data
-    store = Store()
+    # ---- data + capture setup
     t0 = time.monotonic()
     stats = SessionStats(t0)
+    sct = mss.mss()
+    all_mons = sct.monitors[1:]
+    watch = [all_mons[monitor_index - 1]] if 1 <= monitor_index <= len(all_mons) else all_mons
+    dets = [ChestDetector() for _ in watch]
+    boxes = []
+    for m in watch:
+        l, t, bw, bh = search_box(m["width"], m["height"])
+        boxes.append({"left": m["left"] + l, "top": m["top"] + t, "width": bw, "height": bh})
+    state = {"last_black_check": 0.0, "black": False, "last_render": 0.0, "game_mon": 0, "unlocked": False}
+
+    # ---- in-game overlay
+    def overlay_monitor():
+        want = cfg["overlay"]["monitor"] or state["game_mon"] or 1
+        return all_mons[min(max(1, want), len(all_mons)) - 1]
+
+    def on_overlay_moved(anchor, dx, dy, mon_index):
+        cfg["overlay"].update(anchor=anchor, dx=dx, dy=dy)
+        if mon_index:
+            cfg["overlay"]["monitor"] = mon_index
+        store.save()
+        update_overlay(time.monotonic())
+        settings_ui_refresh()
+
+    ovl = overlay_mod.Overlay(tk, root, on_overlay_moved)
+
+    def update_overlay(now):
+        pm = stats.per_minute(now)
+        ovl.update(cfg["overlay"], store.total, stats.count, None if pm is None else pm * 60,
+                   overlay_monitor(), state["unlocked"], all_mons)
+
+    # ---- dynamic part: stat cards + status row (rebuilt when settings change)
+    value_ids, ids = {}, {}
+    last_status = {"msg": "Starting...", "color": GREEN}
+
+    def set_status(msg, color):
+        last_status.update(msg=msg, color=color)
+        if "status" in ids:
+            cv.itemconfig(ids["status"], text=msg)
+            cv.itemconfig(ids["dot"], fill=color)
+
+    def layout():
+        cv.delete("dyn")
+        value_ids.clear()
+        visible = [c for c in STAT_CARDS if cfg["stats"][c[0]]]
+        n = len(visible)
+        cw, ch, gap, y0 = (W - 2 * PAD - 10) / 2, 72, 10, 184
+        for i, (key, label) in enumerate(visible):
+            full = n % 2 == 1 and i == n - 1                # an odd last card spans the full width
+            x = PAD + (0 if full else (i % 2) * (cw + gap))
+            width = (W - 2 * PAD) if full else cw
+            y = y0 + (i // 2) * (ch + gap)
+            rrect(x, y, x + width, y + ch, 14, CARD, BORDER, tags="dyn")
+            text(x + 14, y + 18, label, 8, MUTED, "bold", "w", tags="dyn")
+            value_ids[key] = text(x + 14, y + 46, "--", 15, TEXT, "bold", "w", tags="dyn")
+        rows = (n + 1) // 2
+        end = y0 + rows * (ch + gap) - gap if rows else 170
+        ids["dot"] = cv.create_oval(S(PAD), S(end + 11), S(PAD + 8), S(end + 19), fill=GREEN,
+                                    outline="", tags="dyn")
+        ids["status"] = text(PAD + 16, end + 15, "", 9, MUTED, "normal", "w", tags="dyn")
+        text(W - PAD, end + 15, f"v{__version__}", 8, MUTED, "normal", "e", tags="dyn")
+        height = end + 32
+        root.geometry(f"{S(W)}x{S(height)}")
+        cv.config(height=S(height))
+        set_status(last_status["msg"], last_status["color"])
+        render(time.monotonic())
 
     def render(now):
         cv.itemconfig(total_id, text=f"{store.total:,}")
-        cv.itemconfig(best_id, text=f"BEST SESSION  {store.best_session}")
+        cv.itemconfig(best_id, text=f"BEST SESSION  {store.best_session}" if cfg["stats"]["best"] else "")
         pm = stats.per_minute(now)
         gap_s = stats.avg_gap()
         since = stats.since_last(now)
@@ -466,8 +528,9 @@ def run_app(monitor_index, debug):
             "gap": "--" if gap_s is None else fmt_clock(gap_s),
             "last": "--" if since is None else fmt_ago(since),
         }
-        for k, v in vals.items():
-            cv.itemconfig(value_ids[k], text=v)
+        for k, item in value_ids.items():
+            cv.itemconfig(item, text=vals[k])
+        update_overlay(now)
 
     def pulse(step=0, steps=8):
         if step > steps:
@@ -509,6 +572,43 @@ def run_app(monitor_index, debug):
             store.best_session = 0
             store.save()
             render(time.monotonic())
+
+    # ---- settings dialog
+    sw = {"ui": None}
+    ov_var = tk.BooleanVar(value=cfg["overlay"]["enabled"])
+
+    def apply_settings(save=True):
+        root.attributes("-topmost", cfg["always_on_top"])
+        ov_var.set(cfg["overlay"]["enabled"])
+        layout()                                           # re-flows the cards and updates the overlay
+        if save:
+            store.save()
+
+    def set_unlocked(value):
+        state["unlocked"] = value
+        update_overlay(time.monotonic())
+
+    def settings_ui_refresh():
+        if sw["ui"] is not None:
+            sw["ui"].refresh()
+
+    def on_settings_closed():
+        sw["ui"] = None
+
+    def open_settings():
+        ui = sw["ui"]
+        try:
+            if ui is not None and ui.win.winfo_exists():
+                ui.win.lift()
+                return
+        except Exception:
+            pass
+        sw["ui"] = settings_window.SettingsWindow(
+            tk, root, cfg, len(all_mons), apply_settings, set_unlocked, style_titlebar, on_settings_closed)
+
+    def toggle_overlay():
+        cfg["overlay"]["enabled"] = bool(ov_var.get())
+        apply_settings()
 
     # ---- updates (runs in a background thread; the window never waits on the network)
     up = {"state": "idle", "version": None, "path": None, "note": "", "note_color": MUTED, "note_until": 0.0}
@@ -562,6 +662,7 @@ def run_app(monitor_index, debug):
             exe = Path(sys.executable)
             updater.apply_update(up["path"], exe)
             updater.relaunch(exe)
+            ovl.destroy()
             root.destroy()
         except Exception:
             note("Update couldn't be installed. Try again later", RED)
@@ -576,13 +677,12 @@ def run_app(monitor_index, debug):
             note("Couldn't start diagnostics", RED)
 
     # ---- right-click menu
-    on_top = tk.BooleanVar(value=True)
     menu = tk.Menu(root, tearoff=0)
+    menu.add_command(label="Settings...", command=open_settings)
+    menu.add_checkbutton(label="Show in-game overlay", variable=ov_var, command=toggle_overlay)
+    menu.add_separator()
     menu.add_command(label="Add 1 chest", command=lambda: chest_added(time.monotonic()))
     menu.add_command(label="Remove 1 chest", command=chest_removed)
-    menu.add_separator()
-    menu.add_checkbutton(label="Always on top", variable=on_top,
-                         command=lambda: root.attributes("-topmost", on_top.get()))
     menu.add_separator()
     menu.add_command(label="Check for updates", command=check_now)
     menu.add_command(label="Install update and restart", command=install_update_now)
@@ -601,32 +701,19 @@ def run_app(monitor_index, debug):
 
     def on_close():
         store.save()
+        ovl.destroy()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
 
     # ---- screen capture + detection loop
-    sct = mss.mss()
-    all_mons = sct.monitors[1:]
-    watch = [all_mons[monitor_index - 1]] if 1 <= monitor_index <= len(all_mons) else all_mons
-    dets = [ChestDetector() for _ in watch]
-    boxes = []
-    for m in watch:
-        l, t, bw, bh = search_box(m["width"], m["height"])
-        boxes.append({"left": m["left"] + l, "top": m["top"] + t, "width": bw, "height": bh})
-
-    state = {"last_black_check": 0.0, "black": False, "last_render": 0.0}
-
-    def set_status(msg, color):
-        cv.itemconfig(status_id, text=msg)
-        cv.itemconfig(dot, fill=color)
-
     def tick():
         try:
             now = time.monotonic()
             best = 0.0
             for m, box, det in zip(watch, boxes, dets):
                 if det.update(grab_bgr(sct, box), m["height"], now):
+                    state["game_mon"] = all_mons.index(m) + 1       # overlay follows the game's monitor
                     chest_added(now)
                 best = max(best, det.score)
             if now - state["last_black_check"] > 3.0:       # is the game capturing as black?
@@ -651,7 +738,8 @@ def run_app(monitor_index, debug):
             set_status(f"Capture error: {str(e)[:34]}", RED)
         root.after(int(POLL_SECONDS * 1000), tick)
 
-    render(time.monotonic())
+    layout()
+    style_titlebar(root)
     root.after(200, tick)
     if UPDATES_ENABLED:
         threading.Thread(target=update_loop, daemon=True).start()

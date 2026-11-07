@@ -50,7 +50,8 @@ def _get(url, timeout=10):
 
 
 def _trusted(url, repo):
-    return isinstance(url, str) and url.startswith(f"https://github.com/{repo}/releases/download/")
+    prefix = f"https://github.com/{repo}/releases/download/"
+    return isinstance(url, str) and url.lower().startswith(prefix.lower())
 
 
 def fetch_latest(repo):
