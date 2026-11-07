@@ -1,27 +1,3 @@
-"""
-Fortnite Chest Counter
-============================
-A small always-on-top window that counts every chest you open, saves your
-total between runs, and shows live stats (per minute, per hour, and more).
-
-How it works: whenever you open a chest, Fortnite shows a "+600 XP  CHEST"
-popup on your HUD. This app watches your screen, looks for the word "CHEST"
-in that popup, and adds 1 each time a new popup appears.
-It only reads screen pixels (like OBS does). It never touches the game.
-
-Run:        python chest_counter.py
-Options:    --monitor N    only watch monitor N (default: watch ALL monitors)
-            --debug        show the live match score in the status line
-            --diagnose     20-second self-test that saves screenshots + scores
-            --video FILE   test on a recorded clip instead of the screen
-
-Click "Settings" in the window (or right-click it) to choose which stats show and to turn
-on the in-game overlay. Right-click also has add/remove a chest, updates and reset.
-The packaged ChestCounter.exe updates itself from GitHub Releases (see README.md).
-
-Tip: set Fortnite to "Windowed Fullscreen". True exclusive fullscreen can show
-up as a black image to screen-capture tools.
-"""
 import argparse
 import base64
 import json
@@ -43,23 +19,22 @@ import updater
 # --------------------------------------------------------------------------
 # Version + update source
 # --------------------------------------------------------------------------
-__version__ = "1.0.0"                        # the release workflow stamps this from your git tag
-GITHUB_REPO = "FyReO/Chest-Counter"          # your public GitHub repo
-FROZEN = getattr(sys, "frozen", False)       # True when running as the packaged .exe
-UPDATES_ENABLED = "YOUR-USERNAME" not in GITHUB_REPO   # stays off only if the placeholder is left in
-UPDATE_CHECK_EVERY = 6 * 3600                # seconds between checks while the app stays open
+__version__ = "1.2.0"
+GITHUB_REPO = "FyReO/Chest-Counter"
+FROZEN = getattr(sys, "frozen", False)
+UPDATES_ENABLED = "YOUR-USERNAME" not in GITHUB_REPO
+UPDATE_CHECK_EVERY = 6 * 3600
 
 # --------------------------------------------------------------------------
 # Detection settings
 # --------------------------------------------------------------------------
-POLL_SECONDS = 0.10      # how often the screen is checked
-ON_THRESHOLD = 0.68      # match score needed to say "popup is showing"
-OFF_THRESHOLD = 0.50     # score below this = popup is gone
-CONFIRM_POLLS = 3        # popup must be seen this many checks in a row
-RELEASE_SECONDS = 0.6    # popup must be gone this long before the next count
-HUD_SCALES = (0.8, 0.9, 1.0, 1.1, 1.25)   # tolerate different HUD scales
+POLL_SECONDS = 0.10
+ON_THRESHOLD = 0.68
+OFF_THRESHOLD = 0.50
+CONFIRM_POLLS = 3
+RELEASE_SECONDS = 0.6
+HUD_SCALES = (0.8, 0.9, 1.0, 1.1, 1.25)
 
-# Template of the word "CHEST" (white-text mask, captured at 1080p, HUD scale 100%)
 TEMPLATE_B64 = "iVBORw0KGgoAAAANSUhEUgAAADQAAAAYCAAAAACQfYF6AAAApElEQVQ4EZ3BgWHDMAAEIW7/ob+RE3cAQS7kQi7kQi7kQn6GfE0mkyEWlke+5sjEZI7maB555DEamYyGGJmv/OQxGY1MRhgZmbxyjJhGJpOPkcfklWPymJjMR8xHmLxyTB7zyHyE+YjJK8fEaB6Z/IyMvHJMTCYjE0ZGRl45RqOR0bwyMvLKMUcmJnNkjpj8y9fkZ/JYjHxM/uVCLuRCLuRCLvwB1KVOGTVMogAAAAAASUVORK5CYII="
 
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
@@ -101,7 +76,7 @@ class ChestDetector:
 
     def score_region(self, region_bgr, screen_h):
         """Best template match (0..1) inside the captured region."""
-        k = 1080.0 / screen_h                      # normalize to 1080p
+        k = 1080.0 / screen_h
         if abs(k - 1.0) > 0.01:
             interp = cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR
             region_bgr = cv2.resize(region_bgr, None, fx=k, fy=k, interpolation=interp)
@@ -132,7 +107,7 @@ class ChestDetector:
 
 
 # --------------------------------------------------------------------------
-# Video test mode: python chest_counter.py --video clip.mp4
+# Video test mode
 # --------------------------------------------------------------------------
 def run_video(path):
     cap = cv2.VideoCapture(path)
@@ -162,7 +137,7 @@ def run_video(path):
 # Screen capture helpers
 # --------------------------------------------------------------------------
 def enable_dpi_awareness():
-    if sys.platform == "win32":      # capture real pixels on scaled displays
+    if sys.platform == "win32":
         try:
             import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -171,7 +146,7 @@ def enable_dpi_awareness():
 
 
 def grab_bgr(sct, box):
-    return np.ascontiguousarray(np.array(sct.grab(box))[:, :, :3])   # BGRA -> BGR
+    return np.ascontiguousarray(np.array(sct.grab(box))[:, :, :3])
 
 
 # --------------------------------------------------------------------------
@@ -185,7 +160,7 @@ def run_diagnose(seconds=20):
     lines = []
 
     def log(msg=""):
-        print(msg)                           # does nothing in the windowed .exe, so also saved below
+        print(msg)
         lines.append(str(msg))
 
     sct = mss.mss()
@@ -225,7 +200,7 @@ def run_diagnose(seconds=20):
             cv2.imwrite(str(out / f"monitor{i+1}_best_region.png"), reg)
     log(f"\nScreenshots saved in: {out}")
     (out / "report.txt").write_text("\n".join(lines), encoding="utf-8")
-    if sys.stdout is None:                   # packaged .exe: no console, so tell the user another way
+    if sys.stdout is None:                  
         try:
             import tkinter as tk
             from tkinter import messagebox
@@ -318,7 +293,7 @@ class Store:
             with open(primary, "a"):
                 pass
             return primary
-        except OSError:                      # folder not writable: use AppData instead
+        except OSError:
             base = Path(os.environ.get("APPDATA") or Path.home()) / "ChestCounter"
             base.mkdir(parents=True, exist_ok=True)
             return base / "chest_count.json"
@@ -326,7 +301,7 @@ class Store:
     def load(self):
         try:
             data = json.loads(self.path.read_text())
-            self.total = max(0, int(data.get("total", data.get("count", 0))))   # old files used "count"
+            self.total = max(0, int(data.get("total", data.get("count", 0))))
             self.best_session = max(0, int(data.get("best_session", 0)))
             self.settings = appcfg.clean_settings(data.get("settings"))
         except Exception:
@@ -337,7 +312,7 @@ class Store:
             tmp = self.path.with_name(self.path.name + ".tmp")
             tmp.write_text(json.dumps({"total": self.total, "best_session": self.best_session,
                                        "settings": self.settings}))
-            os.replace(tmp, self.path)       # atomic: a crash can't corrupt the save
+            os.replace(tmp, self.path)
             return True
         except Exception:
             return False
@@ -385,7 +360,7 @@ def style_titlebar(root):
         root.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
         set_attr = ctypes.windll.dwmapi.DwmSetWindowAttribute
-        for attr, val in ((20, 1), (19, 1), (35, 0x0014100E)):   # dark mode x2, caption color
+        for attr, val in ((20, 1), (19, 1), (35, 0x0014100E)):
             try:
                 set_attr(hwnd, attr, ctypes.byref(ctypes.c_int(val)), 4)
             except Exception:
@@ -412,12 +387,12 @@ def run_app(monitor_index, debug):
     root.resizable(False, False)
 
     store = Store()
-    cfg = store.settings                                   # live settings (saved with the total)
+    cfg = store.settings
     root.attributes("-topmost", cfg["always_on_top"])
 
-    sf = max(1.0, root.winfo_fpixels("1i") / 96.0)         # display scaling (125%, 150%...)
+    sf = max(1.0, root.winfo_fpixels("1i") / 96.0)
     S = lambda v: int(round(v * sf))
-    F = lambda size, weight="normal": (FONT, -int(round(size * 4 / 3 * sf)), weight)   # size in points
+    F = lambda size, weight="normal": (FONT, -int(round(size * 4 / 3 * sf)), weight)
     W, PAD = 340, 16
 
     cv = tk.Canvas(root, width=S(W), height=S(200), bg=BG, highlightthickness=0, bd=0)
@@ -495,7 +470,7 @@ def run_app(monitor_index, debug):
         n = len(visible)
         cw, ch, gap, y0 = (W - 2 * PAD - 10) / 2, 72, 10, 184
         for i, (key, label) in enumerate(visible):
-            full = n % 2 == 1 and i == n - 1                # an odd last card spans the full width
+            full = n % 2 == 1 and i == n - 1
             x = PAD + (0 if full else (i % 2) * (cw + gap))
             width = (W - 2 * PAD) if full else cw
             y = y0 + (i // 2) * (ch + gap)
@@ -580,7 +555,7 @@ def run_app(monitor_index, debug):
     def apply_settings(save=True):
         root.attributes("-topmost", cfg["always_on_top"])
         ov_var.set(cfg["overlay"]["enabled"])
-        layout()                                           # re-flows the cards and updates the overlay
+        layout()
         if save:
             store.save()
 
@@ -610,7 +585,6 @@ def run_app(monitor_index, debug):
         cfg["overlay"]["enabled"] = bool(ov_var.get())
         apply_settings()
 
-    # ---- updates (runs in a background thread; the window never waits on the network)
     up = {"state": "idle", "version": None, "path": None, "note": "", "note_color": MUTED, "note_until": 0.0}
 
     def note(msg, color=MUTED, secs=6):
@@ -628,7 +602,7 @@ def run_app(monitor_index, debug):
                     note(f"You're up to date (v{__version__})", GREEN)
                 return
             up["version"] = info["version"]
-            if not FROZEN:                           # running from source: just tell the user
+            if not FROZEN:
                 up["state"] = "available"
                 return
             up["state"] = "downloading"
@@ -713,10 +687,10 @@ def run_app(monitor_index, debug):
             best = 0.0
             for m, box, det in zip(watch, boxes, dets):
                 if det.update(grab_bgr(sct, box), m["height"], now):
-                    state["game_mon"] = all_mons.index(m) + 1       # overlay follows the game's monitor
+                    state["game_mon"] = all_mons.index(m) + 1
                     chest_added(now)
                 best = max(best, det.score)
-            if now - state["last_black_check"] > 3.0:       # is the game capturing as black?
+            if now - state["last_black_check"] > 3.0:
                 state["last_black_check"] = now
                 state["black"] = all(grab_bgr(sct, m).mean() < 3 for m in watch)
             if state["black"]:
@@ -731,10 +705,10 @@ def run_app(monitor_index, debug):
                 set_status(f"Update v{up['version']} available on GitHub", GOLD)
             else:
                 set_status("Watching for chests" + (f"   match {best:.2f}" if debug else ""), GREEN)
-            if now - state["last_render"] >= 0.5:           # keep the timers ticking
+            if now - state["last_render"] >= 0.5:
                 state["last_render"] = now
                 render(now)
-        except Exception as e:                                   # keep the window alive
+        except Exception as e:
             set_status(f"Capture error: {str(e)[:34]}", RED)
         root.after(int(POLL_SECONDS * 1000), tick)
 
@@ -758,6 +732,6 @@ if __name__ == "__main__":
     elif a.diagnose:
         run_diagnose()
     elif apply_pending_update_at_launch():
-        pass                                  # an update was installed; the new version is starting
+        pass
     else:
         run_app(a.monitor, a.debug)

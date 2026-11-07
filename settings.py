@@ -1,7 +1,3 @@
-"""
-User settings: defaults, validation, and overlay position math. No GUI in here,
-so it is easy to test. The settings are stored inside chest_count.json.
-"""
 import copy
 
 STAT_ORDER = ["session", "time", "pm", "ph", "gap", "last"]
@@ -15,24 +11,24 @@ STAT_LABELS = {
     "last": "Last chest",
 }
 SIZES = {"small": 0.8, "medium": 1.0, "large": 1.3}
-ANCHORS = ("tr", "tl", "br", "bl")          # which screen corner the overlay hugs
+ANCHORS = ("tr", "tl", "br", "bl")
 
 DEFAULTS = {
     "stats": {"best": True, "session": True, "time": True, "pm": True,
               "ph": True, "gap": True, "last": True},
     "overlay": {
-        "enabled": False,        # in-game overlay is off until you turn it on
-        "monitor": 0,            # 0 = follow the game's monitor, else 1, 2, ...
-        "anchor": "tr", "dx": 0.012, "dy": 0.22,   # top right, just under the minimap
+        "enabled": False,
+        "monitor": 0,
+        "anchor": "tr", "dx": 0.012, "dy": 0.22,
         "size": "medium",
-        "opacity": 90,           # percent
-        "show_session": False,   # extra line under the total
+        "opacity": 90,
+        "show_session": False,
         "show_ph": False,
+        "animate": True,
     },
     "always_on_top": True,
 }
 
-# name -> (anchor, dx, dy), where dx/dy are fractions of the screen width/height
 PRESETS = {
     "Top right (below minimap)": ("tr", 0.012, 0.22),
     "Top right corner": ("tr", 0.010, 0.012),
@@ -59,7 +55,7 @@ def clean_settings(raw):
                 s["stats"][k] = st[k]
     ov, o = raw.get("overlay"), s["overlay"]
     if isinstance(ov, dict):
-        for k in ("enabled", "show_session", "show_ph"):
+        for k in ("enabled", "show_session", "show_ph", "animate"):
             if isinstance(ov.get(k), bool):
                 o[k] = ov[k]
         if isinstance(ov.get("monitor"), int) and not isinstance(ov["monitor"], bool):

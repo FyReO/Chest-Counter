@@ -1,6 +1,3 @@
-"""
-Settings dialog. Dark themed; every change applies instantly and is saved.
-"""
 import settings as cfgmod
 
 BG, CARD, BORDER = "#0e1014", "#171a21", "#262b38"
@@ -19,7 +16,7 @@ class SettingsWindow:
         win.title("Settings")
         win.configure(bg=BG)
         win.resizable(False, False)
-        win.attributes("-topmost", True)            # stay visible over the (topmost) main window
+        win.attributes("-topmost", True)
         win.protocol("WM_DELETE_WINDOW", self.close)
         try:
             win.geometry(f"+{root.winfo_x() + 28}+{root.winfo_y() + 28}")
@@ -107,9 +104,13 @@ class SettingsWindow:
             anchor="w", padx=20, pady=(8, 0))
         check(win, "Also show chests per hour", self.ph_var, self._extras).pack(anchor="w", padx=20)
 
+        self.animate_var = tk.BooleanVar(value=ov["animate"])
+        check(win, "Animate when a chest is added (+1 pop)", self.animate_var, self._animate).pack(
+            anchor="w", padx=20, pady=(8, 0))
+
         self.unlock_var = tk.BooleanVar(value=False)
         check(win, "Unlock to drag the overlay (untick when placed)", self.unlock_var, self._unlock).pack(
-            anchor="w", padx=20, pady=(8, 0))
+            anchor="w", padx=20)
         tk.Label(win, text="The overlay shows over Fortnite in Windowed Fullscreen. Exclusive "
                            "fullscreen hides all overlays. Clicks pass through it while it's locked.",
                  bg=BG, fg=MUTED, font=(FONT, 8), wraplength=330, justify="left", anchor="w").pack(
@@ -161,6 +162,10 @@ class SettingsWindow:
         self.cfg["overlay"]["show_ph"] = bool(self.ph_var.get())
         self.on_change()
 
+    def _animate(self):
+        self.cfg["overlay"]["animate"] = bool(self.animate_var.get())
+        self.on_change()
+
     def _unlock(self):
         self.set_unlocked(bool(self.unlock_var.get()))
 
@@ -182,7 +187,7 @@ class SettingsWindow:
             pass
 
     def close(self):
-        self.set_unlocked(False)                    # never leave the overlay draggable
+        self.set_unlocked(False)
         self.on_close()
         try:
             self.win.destroy()

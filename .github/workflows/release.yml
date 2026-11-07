@@ -1,8 +1,6 @@
 name: Build and release
 
-# Push a version tag (for example v1.0.1) and this builds ChestCounter.exe on a
-# Windows machine at GitHub and publishes it as a Release. Running copies of the
-# app find that Release and update themselves.
+
 on:
   push:
     tags:
